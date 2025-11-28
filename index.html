@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D&D Encounter Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc;
+            color: #1a202c;
+        }
+        .form-container {
+            max-width: 600px;
+            margin: 2rem auto;
+            padding: 2rem;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.06);
+        }
+        input[type="number"]::-webkit-inner-spin-button, 
+        input[type="number"]::-webkit-outer-spin-button { 
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
+        }
+        .roll-input-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="p-4 sm:p-6 md:p-8">
+    <div class="form-container rounded-xl">
+        <h1 class="text-3xl font-extrabold text-indigo-700 mb-6 text-center">D&D Encounter Log</h1>
+        <p class="text-sm text-gray-500 mb-8 text-center">Record damage, healing, and kills from the session.</p>
+
+        <form id="dndForm" class="space-y-6">
+
+            <!-- Campaign Input -->
+            <div>
+                <label for="campaignName" class="block text-sm font-medium text-gray-700">Enter Campaign Name</label>
+                <input type="text" id="campaignName" required placeholder="E.g., The Realm of Dragons"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border focus:border-indigo-500 focus:ring-indigo-500">
+            </div>
+
+            <!-- Session Details -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                    <label for="sessionName" class="block text-sm font-medium text-gray-700">Enter Session (Name/Number)</label>
+                    <input type="text" id="sessionName" required placeholder="E.g., Session 14: The Dragon's Lair"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label for="sessionDate" class="block text-sm font-medium text-gray-700">Session Date</label>
+                    <input type="date" id="sessionDate" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+            </div>
+
+            <!-- Actor Dropdown -->
+            <div>
+                <label for="actor" class="block text-sm font-medium text-gray-700">Who did Stat?</label>
+                <select id="actor" required
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border bg-white focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="" disabled selected>Select an actor</option>
+                </select>
+            </div>
+
+            <!-- DYNAMIC DAMAGE INPUTS SECTION -->
+            <div class="space-y-4 p-4 border border-gray-200 rounded-lg bg-gray-50">
+                <h3 class="text-lg font-semibold text-indigo-700">Damage Rolls</h3>
+                
+                <!-- Weapon Damage Section -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Weapon Damage Rolls</label>
+                    <div id="weaponRollsContainer" class="space-y-2">
+                        <!-- Dynamic weapon rolls go here -->
+                    </div>
+                    <button type="button" onclick="addRollInput('weapon')"
+                        class="mt-2 w-full sm:w-auto px-3 py-1 bg-indigo-100 text-indigo-600 text-sm font-medium rounded-md hover:bg-indigo-200 transition">
+                        + Add Weapon Attack Roll
+                    </button>
+                    <p class="mt-2 text-sm font-bold">Total Weapon Damage: <span id="totalWeaponDamageDisplay" class="text-red-600">0</span></p>
+                    <input type="hidden" id="weaponDamage" name="weaponDamage" value="0">
+                </div>
+
+                <!-- Magic Damage Section -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Magic Damage Rolls</label>
+                    <div id="magicRollsContainer" class="space-y-2">
+                        <!-- Dynamic magic rolls go here -->
+                    </div>
+                    <button type="button" onclick="addRollInput('magic')"
+                        class="mt-2 w-full sm:w-auto px-3 py-1 bg-indigo-100 text-indigo-600 text-sm font-medium rounded-md hover:bg-indigo-200 transition">
+                        + Add Magic/Spell Damage Roll
+                    </button>
+                    <p class="mt-2 text-sm font-bold">Total Magic Damage: <span id="totalMagicDamageDisplay" class="text-red-600">0</span></p>
+                    <input type="hidden" id="magicDamage" name="magicDamage" value="0">
+                </div>
+            </div>
+
+            <!-- Healing Input -->
+            <div>
+                <label for="healingAmount" class="block text-sm font-medium text-gray-700">Healing Amount</label>
+                <input type="number" id="healingAmount" min="0" value="0"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border focus:border-indigo-500 focus:ring-indigo-500">
+            </div>
+            
+            <!-- Spell Type Input -->
+             <div>
+                <label for="spellCastType" class="block text-sm font-medium text-gray-700">Spell Cast Type (E.g., Fireball, Healing Word)</label>
+                <input type="text" id="spellCastType" placeholder="Optional"
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border focus:border-indigo-500 focus:ring-indigo-500">
+            </div>
+
+            <!-- Target Dropdown -->
+            <div>
+                <label for="target" class="block text-sm font-medium text-gray-700">Who Received the stat?</label>
+                <select id="target" required
+                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border bg-white focus:border-indigo-500 focus:ring-indigo-500">
+                    <option value="" disabled selected>Select a target</option>
+                </select>
+            </div>
+
+            <!-- Crit & Kills -->
+            <div class="grid grid-cols-2 gap-4 items-center">
+                <div class="flex items-center">
+                    <input type="checkbox" id="isCrit" class="h-4 w-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500">
+                    <label for="isCrit" class="ml-2 block text-sm font-medium text-gray-700">Crit?</label>
+                </div>
+                <div>
+                    <label for="kills" class="block text-sm font-medium text-gray-700">Kills (Confirmed)</label>
+                    <input type="number" id="kills" min="0" value="0"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-3 border focus:border-indigo-500 focus:ring-indigo-500">
+                </div>
+            </div>
+
+            <!-- Status Message -->
+            <div id="statusMessage" class="mt-4 p-3 rounded-lg hidden" role="alert"></div>
+            
+            <!-- Submit Button -->
+            <button type="submit" id="submitButton"
+                class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
+                <span id="buttonText">Log Encounter Stat</span>
+            </button>
+        </form>
+
+        <!-- Navigation Links -->
+        <div class="mt-8 pt-6 border-t border-gray-200 text-center space-y-2">
+            <p class="text-sm text-gray-600 mb-3">View your logged data:</p>
+            <div class="flex flex-col sm:flex-row gap-2 justify-center">
+                <a href="viewer.html" class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition text-sm font-medium">
+                    📊 View All Encounters
+                </a>
+                <a href="analysis.html" class="px-4 py-2 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition text-sm font-medium">
+                    📈 Campaign Analysis
+                </a>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<script>
+    const ACTOR_OPTIONS = [
+        "Ben", "Dan", "Hassel", "Jeremy", "Ryan S", "Will", "DM", "NPC", "Multiple NPCs"
+    ];
+
+    // UI elements
+    const dndForm = document.getElementById('dndForm');
+    const actorSelect = document.getElementById('actor');
+    const targetSelect = document.getElementById('target');
+    const statusMessage = document.getElementById('statusMessage');
+    const submitButton = document.getElementById('submitButton');
+    const weaponDamageInput = document.getElementById('weaponDamage');
+    const magicDamageInput = document.getElementById('magicDamage');
+    const totalWeaponDamageDisplay = document.getElementById('totalWeaponDamageDisplay');
+    const totalMagicDamageDisplay = document.getElementById('totalMagicDamageDisplay');
+
+    // Load saved data from localStorage
+    let encounterData = JSON.parse(localStorage.getItem('dndEncounters') || '[]');
+
+    // Calculate damage totals
+    function calculateTotal(type) {
+        const container = document.getElementById(`${type}RollsContainer`);
+        const inputs = container.querySelectorAll('input[type="number"]');
+        let total = 0;
+        
+        inputs.forEach(input => {
+            const value = parseInt(input.value) || 0;
+            total += value;
+        });
+
+        if (type === 'weapon') {
+            totalWeaponDamageDisplay.textContent = total;
+            weaponDamageInput.value = total;
+        } else if (type === 'magic') {
+            totalMagicDamageDisplay.textContent = total;
+            magicDamageInput.value = total;
+        }
+    }
+
+    // Add damage roll input
+    window.addRollInput = function(type) {
+        const container = document.getElementById(`${type}RollsContainer`);
+        
+        const rollGroup = document.createElement('div');
+        rollGroup.className = 'roll-input-group';
+        
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.min = '0';
+        input.placeholder = 'Damage Roll Amount';
+        input.value = '0';
+        input.className = 'w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring-indigo-500 text-sm';
+        input.addEventListener('input', () => calculateTotal(type));
+
+        const removeButton = document.createElement('button');
+        removeButton.type = 'button';
+        removeButton.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-500 hover:text-red-700 transition" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clip-rule="evenodd" />
+        </svg>`;
+        removeButton.title = "Remove Roll";
+        removeButton.addEventListener('click', () => {
+            container.removeChild(rollGroup);
+            calculateTotal(type);
+        });
+
+        rollGroup.appendChild(input);
+        rollGroup.appendChild(removeButton);
+        container.appendChild(rollGroup);
+
+        calculateTotal(type);
+    }
+
+    // Show status message
+    function showStatus(message, isSuccess) {
+        statusMessage.textContent = message;
+        statusMessage.classList.remove('hidden', 'bg-red-100', 'text-red-700', 'bg-green-100', 'text-green-700');
+        if (isSuccess) {
+            statusMessage.classList.add('bg-green-100', 'text-green-700');
+        } else {
+            statusMessage.classList.add('bg-red-100', 'text-red-700');
+        }
+        setTimeout(() => {
+            statusMessage.classList.add('hidden');
+        }, 5000);
+    }
+
+    // Populate dropdowns
+    function populateDropdowns() {
+        ACTOR_OPTIONS.forEach(name => {
+            const option = document.createElement('option');
+            option.value = name;
+            option.textContent = name;
+            actorSelect.appendChild(option);
+
+            const targetOption = document.createElement('option');
+            targetOption.value = name;
+            targetOption.textContent = name;
+            targetSelect.appendChild(targetOption);
+        });
+    }
+
+    // Handle form submission
+    function handleSubmit(event) {
+        event.preventDefault();
+
+        calculateTotal('weapon');
+        calculateTotal('magic');
+
+        const formData = {
+            id: Date.now().toString(),
+            campaignName: document.getElementById('campaignName').value.trim(),
+            sessionName: document.getElementById('sessionName').value.trim(),
+            sessionDate: document.getElementById('sessionDate').value,
+            actor: actorSelect.value,
+            target: targetSelect.value,
+            weaponDamage: parseInt(weaponDamageInput.value) || 0,
+            magicDamage: parseInt(magicDamageInput.value) || 0,
+            healingAmount: parseInt(document.getElementById('healingAmount').value) || 0,
+            spellCastType: document.getElementById('spellCastType').value.trim() || null,
+            isCrit: document.getElementById('isCrit').checked,
+            kills: parseInt(document.getElementById('kills').value) || 0,
+            recordedAt: new Date().toISOString(),
+            recordedBy: 'User'
+        };
+
+        if (!formData.campaignName || !formData.sessionName || !formData.sessionDate || !formData.actor || !formData.target) {
+            showStatus("Please fill out all required fields.", false);
+            return;
+        }
+
+        encounterData.push(formData);
+        localStorage.setItem('dndEncounters', JSON.stringify(encounterData));
+        
+        showStatus(`Stat successfully logged! Total Weapon Damage: ${formData.weaponDamage}, Total Magic Damage: ${formData.magicDamage}.`, true);
+        
+        // Reset form
+        dndForm.reset();
+        document.getElementById('healingAmount').value = 0;
+        document.getElementById('kills').value = 0;
+        document.getElementById('weaponRollsContainer').innerHTML = '';
+        document.getElementById('magicRollsContainer').innerHTML = '';
+        calculateTotal('weapon');
+        calculateTotal('magic');
+        
+        // Add initial roll inputs again
+        addRollInput('weapon');
+        addRollInput('magic');
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+        populateDropdowns();
+        document.getElementById('sessionDate').valueAsDate = new Date();
+        addRollInput('weapon');
+        addRollInput('magic');
+        dndForm.addEventListener('submit', handleSubmit);
+    });
+</script>
+
+</body>
+</html>

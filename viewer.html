@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D&D Encounter Data Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc;
+            color: #1a202c;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 1rem;
+        }
+        .data-table th, .data-table td {
+            padding: 0.75rem 0.5rem;
+            text-align: left;
+            white-space: nowrap;
+        }
+        .data-table th {
+            cursor: pointer;
+            position: sticky;
+            top: 0;
+            background-color: #e2e8f0;
+            user-select: none;
+        }
+        @media (max-width: 768px) {
+            .table-wrapper {
+                overflow-x: auto;
+            }
+            .data-table {
+                min-width: 1100px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="p-4 sm:p-6 md:p-8">
+    <div class="container rounded-xl bg-white shadow-xl">
+        <h1 class="text-3xl font-extrabold text-indigo-700 mb-2">Encounter Stats Log</h1>
+        <p class="text-sm text-gray-500 mb-6">All logged combat events across sessions.</p>
+
+        <!-- Navigation -->
+        <div class="mb-6 flex flex-wrap gap-2">
+            <a href="index.html" class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition text-sm font-medium">
+                ← Back to Form
+            </a>
+            <a href="analysis.html" class="px-4 py-2 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition text-sm font-medium">
+                📈 Campaign Analysis
+            </a>
+            <button onclick="exportData()" class="px-4 py-2 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition text-sm font-medium">
+                📥 Export Data
+            </button>
+            <button onclick="clearAllData()" class="px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition text-sm font-medium">
+                🗑️ Clear All Data
+            </button>
+        </div>
+        
+        <div id="loadingMessage" class="text-center p-8 text-indigo-500 font-medium">
+            Loading data...
+        </div>
+
+        <div id="errorMessage" class="p-4 bg-red-100 text-red-700 rounded-lg hidden"></div>
+        
+        <div id="tableWrapper" class="table-wrapper">
+            <table id="dataTable" class="min-w-full divide-y divide-gray-200 data-table rounded-lg overflow-hidden hidden">
+                <thead class="bg-gray-100">
+                    <tr>
+                        <th data-key="campaignName" class="text-xs font-semibold text-gray-600 uppercase tracking-wider rounded-tl-lg">Campaign ⇅</th>
+                        <th data-key="sessionName" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Session ⇅</th>
+                        <th data-key="sessionDate" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Date ⇅</th>
+                        <th data-key="actor" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Who Did Stat ⇅</th>
+                        <th data-key="weaponDamage" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Wpn Dmg ⇅</th>
+                        <th data-key="magicDamage" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Mag Dmg ⇅</th>
+                        <th data-key="healingAmount" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Heal ⇅</th>
+                        <th data-key="spellCastType" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Spell Type ⇅</th>
+                        <th data-key="target" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Who Received ⇅</th>
+                        <th data-key="isCrit" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Crit? ⇅</th>
+                        <th data-key="kills" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Kills ⇅</th>
+                        <th data-key="recordedAt" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Logged At ⇅</th>
+                        <th class="text-xs font-semibold text-gray-600 uppercase tracking-wider rounded-tr-lg">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody" class="bg-white divide-y divide-gray-200">
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const loadingMessage = document.getElementById('loadingMessage');
+    const errorMessage = document.getElementById('errorMessage');
+    const dataTable = document.getElementById('dataTable');
+    const tableBody = document.getElementById('tableBody');
+    const tableHeaders = dataTable.querySelectorAll('th[data-key]');
+
+    let currentSort = { key: 'recordedAt', direction: 'desc' };
+    let currentData = [];
+
+    function formatTimestamp(isoString) {
+        if (!isoString) return 'N/A';
+        const date = new Date(isoString);
+        return date.toLocaleString();
+    }
+
+    function showError(message) {
+        loadingMessage.classList.add('hidden');
+        errorMessage.textContent = `Error: ${message}`;
+        errorMessage.classList.remove('hidden');
+        dataTable.classList.add('hidden');
+    }
+
+    function sortData(data) {
+        const { key, direction } = currentSort;
+        
+        return [...data].sort((a, b) => {
+            let valA = a[key];
+            let valB = b[key];
+
+            if (key === 'recordedAt') {
+                valA = new Date(a.recordedAt).getTime() || 0;
+                valB = new Date(b.recordedAt).getTime() || 0;
+            }
+            if (typeof valA === 'number' && typeof valB === 'number') {
+                return direction === 'asc' ? valA - valB : valB - valA;
+            }
+            if (key === 'isCrit') {
+                valA = valA ? 1 : 0;
+                valB = valB ? 1 : 0;
+                return direction === 'asc' ? valA - valB : valB - valA;
+            }
+            const strA = String(valA || '').toLowerCase();
+            const strB = String(valB || '').toLowerCase();
+            if (strA < strB) return direction === 'asc' ? -1 : 1;
+            if (strA > strB) return direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+
+    function handleSort(event) {
+        const newKey = event.currentTarget.getAttribute('data-key');
+
+        if (currentSort.key === newKey) {
+            currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+        } else {
+            currentSort.key = newKey;
+            currentSort.direction = 'desc';
+        }
+
+        renderTable(currentData);
+    }
+
+    function deleteEntry(id) {
+        if (!confirm('Are you sure you want to delete this entry?')) return;
+        
+        currentData = currentData.filter(entry => entry.id !== id);
+        localStorage.setItem('dndEncounters', JSON.stringify(currentData));
+        renderTable(currentData);
+    }
+
+    function renderTable(data) {
+        currentData = data;
+        const sortedData = sortData(data);
+        tableBody.innerHTML = '';
+
+        if (sortedData.length === 0) {
+            tableBody.innerHTML = '<tr><td colspan="13" class="text-center py-4 text-gray-500">No encounter stats logged yet. <a href="index.html" class="text-indigo-600 hover:underline">Log your first encounter!</a></td></tr>';
+            loadingMessage.classList.add('hidden');
+            dataTable.classList.remove('hidden');
+            return;
+        }
+
+        sortedData.forEach(entry => {
+            const row = tableBody.insertRow();
+            row.classList.add('hover:bg-indigo-50', 'transition', 'duration-150');
+
+            const cellClass = "text-sm text-gray-800";
+            
+            row.insertCell().innerHTML = `<span class="${cellClass} font-extrabold text-indigo-700">${entry.campaignName || '-'}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass} font-semibold">${entry.sessionName}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass}">${entry.sessionDate}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass}">${entry.actor}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass} text-red-600">${entry.weaponDamage}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass} text-red-600">${entry.magicDamage}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass} text-green-600">${entry.healingAmount}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass} italic">${entry.spellCastType || '-'}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass}">${entry.target}</span>`;
+            row.insertCell().innerHTML = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${entry.isCrit ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-500'}">${entry.isCrit ? 'YES' : 'No'}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass} font-bold text-gray-700">${entry.kills}</span>`;
+            row.insertCell().innerHTML = `<span class="${cellClass} text-gray-500">${formatTimestamp(entry.recordedAt)}</span>`;
+            
+            const actionsCell = row.insertCell();
+            actionsCell.innerHTML = `<button onclick="deleteEntry('${entry.id}')" class="text-red-600 hover:text-red-800 text-xs">Delete</button>`;
+        });
+
+        loadingMessage.classList.add('hidden');
+        dataTable.classList.remove('hidden');
+    }
+
+    function exportData() {
+        const dataStr = JSON.stringify(currentData, null, 2);
+        const dataBlob = new Blob([dataStr], {type: 'application/json'});
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'dnd-encounters-' + new Date().toISOString().split('T')[0] + '.json';
+        link.click();
+        URL.revokeObjectURL(url);
+    }
+
+    function clearAllData() {
+        if (!confirm('Are you sure you want to delete ALL encounter data? This cannot be undone!')) return;
+        localStorage.removeItem('dndEncounters');
+        currentData = [];
+        renderTable(currentData);
+    }
+
+    window.deleteEntry = deleteEntry;
+    window.exportData = exportData;
+    window.clearAllData = clearAllData;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        tableHeaders.forEach(header => {
+            header.addEventListener('click', handleSort);
+        });
+        
+        const data = JSON.parse(localStorage.getItem('dndEncounters') || '[]');
+        renderTable(data);
+    });
+</script>
+
+</body>
+</html>

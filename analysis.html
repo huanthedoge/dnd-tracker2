@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D&D Campaign Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7fafc;
+            color: #1a202c;
+        }
+        .container {
+            max-width: 1300px;
+            margin: 2rem auto;
+            padding: 1rem;
+        }
+        .metrics-table {
+            border-collapse: separate;
+            border-spacing: 0;
+            width: 100%;
+        }
+        .metrics-table th, .metrics-table td {
+            padding: 0.75rem 0.5rem;
+            text-align: center;
+            border-right: 1px solid #e2e8f0;
+            font-size: 0.875rem;
+        }
+        .metrics-table th:last-child, .metrics-table td:last-child {
+            border-right: none;
+        }
+        .metrics-table th {
+            font-size: 0.75rem;
+            background-color: #f1f5f9;
+            color: #4a5568;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .metric-header {
+            text-align: left !important;
+            padding-left: 1rem !important;
+            background-color: #f8fafc !important;
+            font-weight: 600;
+            width: 250px;
+            position: sticky;
+            left: 0;
+            z-index: 20;
+            border-right: 1px solid #e2e8f0;
+        }
+        .party-total-col {
+            background-color: #e0e7ff !important;
+            font-weight: bold;
+        }
+        .players-col {
+            background-color: #fff;
+        }
+        .npc-col {
+            background-color: #f0f4f8;
+        }
+        .dmg-row { background-color: #fef2f2; }
+        .heal-row { background-color: #ecfdf5; }
+        .kill-row { background-color: #fff7ed; }
+        
+        .table-wrapper {
+            overflow-x: auto;
+            width: 100%;
+        }
+        .metrics-table {
+            min-width: 1200px;
+        }
+    </style>
+</head>
+<body>
+
+<div id="app" class="p-4 sm:p-6 md:p-8">
+    <div class="container rounded-xl bg-white shadow-xl">
+        <h1 class="text-3xl font-extrabold text-indigo-700 mb-2">Campaign Combat Analysis</h1>
+        <p class="text-sm text-gray-500 mb-6">Aggregated metrics per player and entity for a selected campaign.</p>
+
+        <!-- Navigation -->
+        <div class="mb-6 flex flex-wrap gap-2">
+            <a href="index.html" class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition text-sm font-medium">
+                ← Back to Form
+            </a>
+            <a href="viewer.html" class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200 transition text-sm font-medium">
+                📊 View All Encounters
+            </a>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-4 mb-6 items-center">
+            <label for="campaignSelector" class="font-medium text-gray-700">Select Campaign:</label>
+            <select id="campaignSelector" 
+                class="p-2 border border-gray-300 rounded-md shadow-sm bg-white focus:ring-indigo-500 focus:border-indigo-500 w-full sm:w-64">
+                <option value="all">-- Loading Campaigns --</option>
+            </select>
+        </div>
+        
+        <div id="loadingMessage" class="text-center p-8 text-indigo-500 font-medium">
+            Loading data...
+        </div>
+
+        <div id="errorMessage" class="p-4 bg-red-100 text-red-700 rounded-lg hidden"></div>
+        
+        <div id="dataView" class="hidden">
+            <div id="noDataMessage" class="hidden text-center p-8 text-gray-500 border border-dashed rounded-lg">
+                No data found for this campaign.
+            </div>
+
+            <div id="tableWrapper" class="table-wrapper">
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const PLAYER_ENTITIES = ["Ben", "Dan", "Hassel", "Jeremy", "Ryan S", "Will"];
+    const OTHER_ENTITIES = ["DM", "NPC", "Multiple NPCs"];
+    const ALL_ENTITIES = [...PLAYER_ENTITIES, ...OTHER_ENTITIES];
+
+    const METRICS_CONFIG = [
+        { key: 'entriesCount', label: 'Combat Actions Logged', rowClass: 'dmg-row' },
+        { key: 'totalDamage', label: 'Total Damage Given', rowClass: 'dmg-row' },
+        { key: 'weaponDmgGiven', label: 'Total Weapon Damage', rowClass: 'dmg-row' },
+        { key: 'magicDmgGiven', label: 'Total Magic Damage', rowClass: 'dmg-row' },
+        { key: 'maxDmgInRound', label: 'Max Damage in One Round', rowClass: 'dmg-row' },
+        { key: 'critCount', label: 'Total Critical Hits', rowClass: 'dmg-row' },
+        { key: 'totalDmgTaken', label: 'Total Damage Taken', rowClass: 'dmg-row' },
+        { key: 'healingGiven', label: 'Total Healing Given', rowClass: 'heal-row' },
+        { key: 'healingReceived', label: 'Total Healing Received', rowClass: 'heal-row' },
+        { key: 'kills', label: 'Total Kills', rowClass: 'kill-row' },
+    ];
+
+    let allData = [];
+    let availableCampaigns = new Set();
+
+    const loadingMessage = document.getElementById('loadingMessage');
+    const errorMessage = document.getElementById('errorMessage');
+    const dataView = document.getElementById('dataView');
+    const tableWrapper = document.getElementById('tableWrapper');
+    const noDataMessage = document.getElementById('noDataMessage');
+    const campaignSelector = document.getElementById('campaignSelector');
+
+    function showError(message) {
+        loadingMessage.classList.add('hidden');
+        errorMessage.textContent = `Error: ${message}`;
+        errorMessage.classList.remove('hidden');
+        dataView.classList.add('hidden');
+    }
+
+    function getInitialStats() {
+        const stats = {};
+        ALL_ENTITIES.forEach(entity => {
+            stats[entity] = {
+                entriesCount: 0,
+                weaponDmgGiven: 0,
+                magicDmgGiven: 0,
+                totalDamage: 0,
+                healingGiven: 0,
+                kills: 0,
+                maxDmgInRound: 0,
+                totalDmgTaken: 0,
+                healingReceived: 0,
+                critCount: 0,
+            };
+        });
+        return stats;
+    }
+
+    function aggregateData(entries) {
+        const stats = getInitialStats();
+
+        entries.forEach(entry => {
+            const actor = entry.actor;
+            if (stats[actor]) {
+                const totalDmg = entry.weaponDamage + entry.magicDamage;
+
+                stats[actor].entriesCount += 1;
+                stats[actor].weaponDmgGiven += entry.weaponDamage;
+                stats[actor].magicDmgGiven += entry.magicDamage;
+                stats[actor].totalDamage += totalDmg;
+                stats[actor].healingGiven += entry.healingAmount;
+                stats[actor].kills += entry.kills;
+                stats[actor].maxDmgInRound = Math.max(stats[actor].maxDmgInRound, totalDmg);
+                
+                if (entry.isCrit) {
+                    stats[actor].critCount += 1;
+                }
+            }
+
+            const target = entry.target;
+            if (stats[target]) {
+                if (entry.healingAmount > 0) {
+                    stats[target].healingReceived += entry.healingAmount;
+                }
+                
+                const totalDamageTaken = entry.weaponDamage + entry.magicDamage;
+                if (totalDamageTaken > 0) {
+                    stats[target].totalDmgTaken += totalDamageTaken;
+                }
+            }
+        });
+
+        const partyTotal = getInitialStats()[PLAYER_ENTITIES[0]];
+        METRICS_CONFIG.forEach(metric => {
+            partyTotal[metric.key] = 0;
+        });
+
+        ALL_ENTITIES.forEach(entity => {
+            if (PLAYER_ENTITIES.includes(entity)) {
+                METRICS_CONFIG.forEach(metric => {
+                    partyTotal[metric.key] += stats[entity][metric.key];
+                });
+            }
+        });
+        stats['Party Totals'] = partyTotal;
+        
+        return stats;
+    }
+
+    function renderAnalysisTable(aggregatedStats) {
+        if (Object.keys(aggregatedStats).length === 0) {
+            tableWrapper.innerHTML = '';
+            noDataMessage.classList.remove('hidden');
+            return;
+        }
+        noDataMessage.classList.add('hidden');
+
+        const allColumns = [...PLAYER_ENTITIES, 'Party Totals', ...OTHER_ENTITIES];
+        
+        let headerHtml = '<thead><tr><th class="metric-header rounded-tl-lg">Metric</th>';
+        allColumns.forEach(col => {
+            let colClass = 'players-col';
+            if (col === 'Party Totals') colClass = 'party-total-col';
+            else if (OTHER_ENTITIES.includes(col)) colClass = 'npc-col';
+            
+            headerHtml += `<th class="${colClass} whitespace-normal">${col}</th>`;
+        });
+        headerHtml += '</tr></thead>';
+
+        let bodyHtml = '<tbody>';
+
+        METRICS_CONFIG.forEach(metric => {
+            bodyHtml += `<tr class="${metric.rowClass}">`;
+            bodyHtml += `<td class="metric-header">${metric.label}</td>`;
+            
+            allColumns.forEach(entity => {
+                const entityStats = aggregatedStats[entity];
+                const value = entityStats ? (entityStats[metric.key] || 0) : 0;
+                
+                let colClass = 'players-col';
+                if (entity === 'Party Totals') colClass = 'party-total-col';
+                else if (OTHER_ENTITIES.includes(entity)) colClass = 'npc-col';
+
+                let displayValue = value;
+                if (metric.key.includes('Dmg') || metric.key.includes('healing')) {
+                    displayValue = value.toLocaleString();
+                } else if (metric.key === 'entriesCount' || metric.key === 'critCount' || metric.key === 'kills') {
+                    displayValue = Math.round(value);
+                }
+                
+                bodyHtml += `<td class="${colClass}">${displayValue}</td>`;
+            });
+            bodyHtml += '</tr>';
+        });
+
+        bodyHtml += '</tbody>';
+
+        tableWrapper.innerHTML = `<table class="metrics-table rounded-xl shadow-md overflow-hidden">${headerHtml}${bodyHtml}</table>`;
+        dataView.classList.remove('hidden');
+    }
+
+    function filterAndRenderData() {
+        const selectedCampaign = campaignSelector.value;
+        let filteredData;
+
+        if (selectedCampaign === 'all') {
+            filteredData = allData;
+        } else {
+            filteredData = allData.filter(entry => entry.campaignName === selectedCampaign);
+        }
+
+        const aggregatedStats = aggregateData(filteredData);
+        renderAnalysisTable(aggregatedStats);
+    }
+
+    function populateCampaignSelector() {
+        campaignSelector.innerHTML = '<option value="all">All Campaigns</option>';
+        if (availableCampaigns.size === 0 && allData.length > 0) {
+            // Data exists but no campaign names
+        } else if (allData.length === 0) {
+            campaignSelector.innerHTML = '<option value="all" disabled>No Campaigns Found</option>';
+            return;
+        }
+        
+        [...availableCampaigns].sort().forEach(campaign => {
+            const option = document.createElement('option');
+            option.value = campaign;
+            option.textContent = campaign;
+            campaignSelector.appendChild(option);
+        });
+        
+        campaignSelector.value = 'all'; 
+    }
+
+    function loadData() {
+        const data = JSON.parse(localStorage.getItem('dndEncounters') || '[]');
+        allData = data;
+        availableCampaigns.clear();
+        
+        data.forEach(entry => {
+            if (entry.campaignName && entry.campaignName.trim() !== '') {
+                availableCampaigns.add(entry.campaignName);
+            }
+        });
+
+        populateCampaignSelector();
+        filterAndRenderData();
+        loadingMessage.classList.add('hidden');
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        campaignSelector.addEventListener('change', filterAndRenderData);
+        loadData();
+    });
+</script>
+
+</body>
+</html>
