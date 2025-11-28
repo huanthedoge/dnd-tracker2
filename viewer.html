@@ -43,7 +43,8 @@
 <div id="app" class="p-4 sm:p-6 md:p-8">
     <div class="container rounded-xl bg-white shadow-xl">
         <h1 class="text-3xl font-extrabold text-indigo-700 mb-2">Encounter Stats Log</h1>
-        <p class="text-sm text-gray-500 mb-6">All logged combat events across sessions.</p>
+        <p class="text-sm text-gray-500 mb-4">Real-time data for all logged combat events across sessions.</p>
+        <p id="authStatus" class="mb-6 text-center text-xs text-gray-400">Initializing...</p>
 
         <!-- Navigation -->
         <div class="mb-6 flex flex-wrap gap-2">
@@ -53,12 +54,6 @@
             <a href="analysis.html" class="px-4 py-2 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200 transition text-sm font-medium">
                 📈 Campaign Analysis
             </a>
-            <button onclick="exportData()" class="px-4 py-2 bg-green-100 text-green-700 rounded-md hover:bg-green-200 transition text-sm font-medium">
-                📥 Export Data
-            </button>
-            <button onclick="clearAllData()" class="px-4 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition text-sm font-medium">
-                🗑️ Clear All Data
-            </button>
         </div>
         
         <div id="loadingMessage" class="text-center p-8 text-indigo-500 font-medium">
@@ -82,8 +77,7 @@
                         <th data-key="target" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Who Received ⇅</th>
                         <th data-key="isCrit" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Crit? ⇅</th>
                         <th data-key="kills" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Kills ⇅</th>
-                        <th data-key="recordedAt" class="text-xs font-semibold text-gray-600 uppercase tracking-wider">Logged At ⇅</th>
-                        <th class="text-xs font-semibold text-gray-600 uppercase tracking-wider rounded-tr-lg">Actions</th>
+                        <th data-key="recordedAt" class="text-xs font-semibold text-gray-600 uppercase tracking-wider rounded-tr-lg">Logged At ⇅</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody" class="bg-white divide-y divide-gray-200">
@@ -93,19 +87,40 @@
     </div>
 </div>
 
-<script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getFirestore, collection, query, onSnapshot, orderBy } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyC7BaWYwHkRbKX5tHqmizowv-iPR5JF8Rk",
+        authDomain: "dnd-encounter-tracker-4c6da.firebaseapp.com",
+        projectId: "dnd-encounter-tracker-4c6da",
+        storageBucket: "dnd-encounter-tracker-4c6da.firebasestorage.app",
+        messagingSenderId: "35765947096",
+        appId: "1:35765947096:web:6da5b1d95dd7367de265ad"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    let userId = null;
+
     const loadingMessage = document.getElementById('loadingMessage');
     const errorMessage = document.getElementById('errorMessage');
     const dataTable = document.getElementById('dataTable');
     const tableBody = document.getElementById('tableBody');
     const tableHeaders = dataTable.querySelectorAll('th[data-key]');
+    const authStatus = document.getElementById('authStatus');
 
     let currentSort = { key: 'recordedAt', direction: 'desc' };
     let currentData = [];
 
-    function formatTimestamp(isoString) {
-        if (!isoString) return 'N/A';
-        const date = new Date(isoString);
+    function formatTimestamp(timestamp) {
+        if (!timestamp) return 'N/A';
+        const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
         return date.toLocaleString();
     }
 
@@ -124,8 +139,8 @@
             let valB = b[key];
 
             if (key === 'recordedAt') {
-                valA = new Date(a.recordedAt).getTime() || 0;
-                valB = new Date(b.recordedAt).getTime() || 0;
+                valA = a.recordedAt?.toDate?.()?.getTime() || 0;
+                valB = b.recordedAt?.toDate?.()?.getTime() || 0;
             }
             if (typeof valA === 'number' && typeof valB === 'number') {
                 return direction === 'asc' ? valA - valB : valB - valA;
@@ -156,21 +171,13 @@
         renderTable(currentData);
     }
 
-    function deleteEntry(id) {
-        if (!confirm('Are you sure you want to delete this entry?')) return;
-        
-        currentData = currentData.filter(entry => entry.id !== id);
-        localStorage.setItem('dndEncounters', JSON.stringify(currentData));
-        renderTable(currentData);
-    }
-
     function renderTable(data) {
         currentData = data;
         const sortedData = sortData(data);
         tableBody.innerHTML = '';
 
         if (sortedData.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="13" class="text-center py-4 text-gray-500">No encounter stats logged yet. <a href="index.html" class="text-indigo-600 hover:underline">Log your first encounter!</a></td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="12" class="text-center py-4 text-gray-500">No encounter stats logged yet. <a href="index.html" class="text-indigo-600 hover:underline">Log your first encounter!</a></td></tr>';
             loadingMessage.classList.add('hidden');
             dataTable.classList.remove('hidden');
             return;
@@ -194,44 +201,49 @@
             row.insertCell().innerHTML = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${entry.isCrit ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-500'}">${entry.isCrit ? 'YES' : 'No'}</span>`;
             row.insertCell().innerHTML = `<span class="${cellClass} font-bold text-gray-700">${entry.kills}</span>`;
             row.insertCell().innerHTML = `<span class="${cellClass} text-gray-500">${formatTimestamp(entry.recordedAt)}</span>`;
-            
-            const actionsCell = row.insertCell();
-            actionsCell.innerHTML = `<button onclick="deleteEntry('${entry.id}')" class="text-red-600 hover:text-red-800 text-xs">Delete</button>`;
         });
 
         loadingMessage.classList.add('hidden');
         dataTable.classList.remove('hidden');
     }
 
-    function exportData() {
-        const dataStr = JSON.stringify(currentData, null, 2);
-        const dataBlob = new Blob([dataStr], {type: 'application/json'});
-        const url = URL.createObjectURL(dataBlob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'dnd-encounters-' + new Date().toISOString().split('T')[0] + '.json';
-        link.click();
-        URL.revokeObjectURL(url);
+    function setupRealtimeListener() {
+        const q = query(collection(db, 'dnd_encounters'), orderBy('recordedAt', 'desc'));
+        
+        onSnapshot(q, (querySnapshot) => {
+            const newEntries = [];
+            querySnapshot.forEach((doc) => {
+                newEntries.push({ id: doc.id, ...doc.data() });
+            });
+            console.log(`Received ${newEntries.length} encounters from Firebase`);
+            renderTable(newEntries);
+        }, (error) => {
+            console.error("Firestore error:", error);
+            showError(`Failed to load data: ${error.message}`);
+        });
     }
 
-    function clearAllData() {
-        if (!confirm('Are you sure you want to delete ALL encounter data? This cannot be undone!')) return;
-        localStorage.removeItem('dndEncounters');
-        currentData = [];
-        renderTable(currentData);
-    }
+    // Initialize Firebase Auth
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            userId = user.uid;
+            authStatus.textContent = `Connected! Viewing shared data in real-time.`;
+            setupRealtimeListener();
+        } else {
+            authStatus.textContent = "Connecting...";
+        }
+    });
 
-    window.deleteEntry = deleteEntry;
-    window.exportData = exportData;
-    window.clearAllData = clearAllData;
+    signInAnonymously(auth).catch((error) => {
+        console.error("Auth error:", error);
+        authStatus.textContent = "Connection failed.";
+        showError("Failed to connect to database.");
+    });
 
     document.addEventListener('DOMContentLoaded', () => {
         tableHeaders.forEach(header => {
             header.addEventListener('click', handleSort);
         });
-        
-        const data = JSON.parse(localStorage.getItem('dndEncounters') || '[]');
-        renderTable(data);
     });
 </script>
 

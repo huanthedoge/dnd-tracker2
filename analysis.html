@@ -79,7 +79,8 @@
 <div id="app" class="p-4 sm:p-6 md:p-8">
     <div class="container rounded-xl bg-white shadow-xl">
         <h1 class="text-3xl font-extrabold text-indigo-700 mb-2">Campaign Combat Analysis</h1>
-        <p class="text-sm text-gray-500 mb-6">Aggregated metrics per player and entity for a selected campaign.</p>
+        <p class="text-sm text-gray-500 mb-4">Aggregated metrics per player and entity for a selected campaign.</p>
+        <p id="authStatus" class="mb-6 text-center text-xs text-gray-400">Initializing...</p>
 
         <!-- Navigation -->
         <div class="mb-6 flex flex-wrap gap-2">
@@ -116,7 +117,21 @@
     </div>
 </div>
 
-<script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getFirestore, collection, query, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyC7BaWYwHkRbKX5tHqmizowv-iPR5JF8Rk",
+        authDomain: "dnd-encounter-tracker-4c6da.firebaseapp.com",
+        projectId: "dnd-encounter-tracker-4c6da",
+        storageBucket: "dnd-encounter-tracker-4c6da.firebasestorage.app",
+        messagingSenderId: "35765947096",
+        appId: "1:35765947096:web:6da5b1d95dd7367de265ad"
+    };
+
     const PLAYER_ENTITIES = ["Ben", "Dan", "Hassel", "Jeremy", "Ryan S", "Will"];
     const OTHER_ENTITIES = ["DM", "NPC", "Multiple NPCs"];
     const ALL_ENTITIES = [...PLAYER_ENTITIES, ...OTHER_ENTITIES];
@@ -134,6 +149,12 @@
         { key: 'kills', label: 'Total Kills', rowClass: 'kill-row' },
     ];
 
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    let userId = null;
+
     let allData = [];
     let availableCampaigns = new Set();
 
@@ -143,6 +164,7 @@
     const tableWrapper = document.getElementById('tableWrapper');
     const noDataMessage = document.getElementById('noDataMessage');
     const campaignSelector = document.getElementById('campaignSelector');
+    const authStatus = document.getElementById('authStatus');
 
     function showError(message) {
         loadingMessage.classList.add('hidden');
@@ -306,25 +328,50 @@
         campaignSelector.value = 'all'; 
     }
 
-    function loadData() {
-        const data = JSON.parse(localStorage.getItem('dndEncounters') || '[]');
-        allData = data;
-        availableCampaigns.clear();
+    function setupRealtimeListener() {
+        const q = query(collection(db, 'dnd_encounters'));
         
-        data.forEach(entry => {
-            if (entry.campaignName && entry.campaignName.trim() !== '') {
-                availableCampaigns.add(entry.campaignName);
-            }
-        });
+        onSnapshot(q, (querySnapshot) => {
+            allData = [];
+            availableCampaigns.clear();
+            
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                allData.push({ id: doc.id, ...data });
+                if (data.campaignName && data.campaignName.trim() !== '') {
+                    availableCampaigns.add(data.campaignName);
+                }
+            });
 
-        populateCampaignSelector();
-        filterAndRenderData();
-        loadingMessage.classList.add('hidden');
+            console.log(`Received ${allData.length} encounters from Firebase`);
+            populateCampaignSelector();
+            filterAndRenderData();
+            loadingMessage.classList.add('hidden');
+        }, (error) => {
+            console.error("Firestore error:", error);
+            showError(`Failed to load data: ${error.message}`);
+        });
     }
+
+    // Initialize Firebase Auth
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            userId = user.uid;
+            authStatus.textContent = `Connected! Analyzing shared campaign data.`;
+            setupRealtimeListener();
+        } else {
+            authStatus.textContent = "Connecting...";
+        }
+    });
+
+    signInAnonymously(auth).catch((error) => {
+        console.error("Auth error:", error);
+        authStatus.textContent = "Connection failed.";
+        showError("Failed to connect to database.");
+    });
 
     document.addEventListener('DOMContentLoaded', () => {
         campaignSelector.addEventListener('change', filterAndRenderData);
-        loadData();
     });
 </script>
 

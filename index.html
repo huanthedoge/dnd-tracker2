@@ -39,7 +39,8 @@
 <div id="app" class="p-4 sm:p-6 md:p-8">
     <div class="form-container rounded-xl">
         <h1 class="text-3xl font-extrabold text-indigo-700 mb-6 text-center">D&D Encounter Log</h1>
-        <p class="text-sm text-gray-500 mb-8 text-center">Record damage, healing, and kills from the session.</p>
+        <p class="text-sm text-gray-500 mb-4 text-center">Record damage, healing, and kills from the session.</p>
+        <p id="authStatus" class="text-xs text-center text-gray-400 mb-6">Initializing...</p>
 
         <form id="dndForm" class="space-y-6">
 
@@ -81,7 +82,6 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Weapon Damage Rolls</label>
                     <div id="weaponRollsContainer" class="space-y-2">
-                        <!-- Dynamic weapon rolls go here -->
                     </div>
                     <button type="button" onclick="addRollInput('weapon')"
                         class="mt-2 w-full sm:w-auto px-3 py-1 bg-indigo-100 text-indigo-600 text-sm font-medium rounded-md hover:bg-indigo-200 transition">
@@ -95,7 +95,6 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Magic Damage Rolls</label>
                     <div id="magicRollsContainer" class="space-y-2">
-                        <!-- Dynamic magic rolls go here -->
                     </div>
                     <button type="button" onclick="addRollInput('magic')"
                         class="mt-2 w-full sm:w-auto px-3 py-1 bg-indigo-100 text-indigo-600 text-sm font-medium rounded-md hover:bg-indigo-200 transition">
@@ -149,6 +148,10 @@
             <button type="submit" id="submitButton"
                 class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-lg text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition duration-150 ease-in-out">
                 <span id="buttonText">Log Encounter Stat</span>
+                <svg id="loadingSpinner" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
             </button>
         </form>
 
@@ -168,10 +171,30 @@
     </div>
 </div>
 
-<script>
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+    // Firebase configuration
+    const firebaseConfig = {
+        apiKey: "AIzaSyC7BaWYwHkRbKX5tHqmizowv-iPR5JF8Rk",
+        authDomain: "dnd-encounter-tracker-4c6da.firebaseapp.com",
+        projectId: "dnd-encounter-tracker-4c6da",
+        storageBucket: "dnd-encounter-tracker-4c6da.firebasestorage.app",
+        messagingSenderId: "35765947096",
+        appId: "1:35765947096:web:6da5b1d95dd7367de265ad"
+    };
+
     const ACTOR_OPTIONS = [
         "Ben", "Dan", "Hassel", "Jeremy", "Ryan S", "Will", "DM", "NPC", "Multiple NPCs"
     ];
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    let userId = null;
 
     // UI elements
     const dndForm = document.getElementById('dndForm');
@@ -179,13 +202,13 @@
     const targetSelect = document.getElementById('target');
     const statusMessage = document.getElementById('statusMessage');
     const submitButton = document.getElementById('submitButton');
+    const buttonText = document.getElementById('buttonText');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const authStatus = document.getElementById('authStatus');
     const weaponDamageInput = document.getElementById('weaponDamage');
     const magicDamageInput = document.getElementById('magicDamage');
     const totalWeaponDamageDisplay = document.getElementById('totalWeaponDamageDisplay');
     const totalMagicDamageDisplay = document.getElementById('totalMagicDamageDisplay');
-
-    // Load saved data from localStorage
-    let encounterData = JSON.parse(localStorage.getItem('dndEncounters') || '[]');
 
     // Calculate damage totals
     function calculateTotal(type) {
@@ -254,6 +277,18 @@
         }, 5000);
     }
 
+    // Toggle loading state
+    function toggleLoading(isLoading) {
+        submitButton.disabled = isLoading;
+        if (isLoading) {
+            buttonText.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+        } else {
+            buttonText.classList.remove('hidden');
+            loadingSpinner.classList.add('hidden');
+        }
+    }
+
     // Populate dropdowns
     function populateDropdowns() {
         ACTOR_OPTIONS.forEach(name => {
@@ -270,14 +305,20 @@
     }
 
     // Handle form submission
-    function handleSubmit(event) {
+    async function handleSubmit(event) {
         event.preventDefault();
+
+        if (!userId) {
+            showStatus("Please wait for authentication to complete.", false);
+            return;
+        }
 
         calculateTotal('weapon');
         calculateTotal('magic');
 
+        toggleLoading(true);
+
         const formData = {
-            id: Date.now().toString(),
             campaignName: document.getElementById('campaignName').value.trim(),
             sessionName: document.getElementById('sessionName').value.trim(),
             sessionDate: document.getElementById('sessionDate').value,
@@ -289,33 +330,55 @@
             spellCastType: document.getElementById('spellCastType').value.trim() || null,
             isCrit: document.getElementById('isCrit').checked,
             kills: parseInt(document.getElementById('kills').value) || 0,
-            recordedAt: new Date().toISOString(),
-            recordedBy: 'User'
+            recordedAt: serverTimestamp(),
+            recordedBy: userId
         };
 
         if (!formData.campaignName || !formData.sessionName || !formData.sessionDate || !formData.actor || !formData.target) {
             showStatus("Please fill out all required fields.", false);
+            toggleLoading(false);
             return;
         }
 
-        encounterData.push(formData);
-        localStorage.setItem('dndEncounters', JSON.stringify(encounterData));
-        
-        showStatus(`Stat successfully logged! Total Weapon Damage: ${formData.weaponDamage}, Total Magic Damage: ${formData.magicDamage}.`, true);
-        
-        // Reset form
-        dndForm.reset();
-        document.getElementById('healingAmount').value = 0;
-        document.getElementById('kills').value = 0;
-        document.getElementById('weaponRollsContainer').innerHTML = '';
-        document.getElementById('magicRollsContainer').innerHTML = '';
-        calculateTotal('weapon');
-        calculateTotal('magic');
-        
-        // Add initial roll inputs again
-        addRollInput('weapon');
-        addRollInput('magic');
+        try {
+            await addDoc(collection(db, 'dnd_encounters'), formData);
+            showStatus(`Stat successfully logged! Total Weapon Damage: ${formData.weaponDamage}, Total Magic Damage: ${formData.magicDamage}.`, true);
+            
+            // Reset form
+            dndForm.reset();
+            document.getElementById('healingAmount').value = 0;
+            document.getElementById('kills').value = 0;
+            document.getElementById('weaponRollsContainer').innerHTML = '';
+            document.getElementById('magicRollsContainer').innerHTML = '';
+            calculateTotal('weapon');
+            calculateTotal('magic');
+            addRollInput('weapon');
+            addRollInput('magic');
+        } catch (error) {
+            console.error("Error adding document:", error);
+            showStatus(`Failed to log stat: ${error.message}`, false);
+        }
+
+        toggleLoading(false);
     }
+
+    // Initialize Firebase Auth
+    onAuthStateChanged(auth, (user) => {
+        if (user) {
+            userId = user.uid;
+            authStatus.textContent = `Connected! Your data syncs with your group.`;
+            dndForm.addEventListener('submit', handleSubmit);
+        } else {
+            authStatus.textContent = "Connecting to database...";
+        }
+    });
+
+    // Sign in anonymously
+    signInAnonymously(auth).catch((error) => {
+        console.error("Auth error:", error);
+        authStatus.textContent = "Connection failed. Please refresh the page.";
+        showStatus("Failed to connect to database.", false);
+    });
 
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
@@ -323,7 +386,6 @@
         document.getElementById('sessionDate').valueAsDate = new Date();
         addRollInput('weapon');
         addRollInput('magic');
-        dndForm.addEventListener('submit', handleSubmit);
     });
 </script>
 
