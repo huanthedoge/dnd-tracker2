@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Import Historical Data</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8">
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-lg p-8">
+        <h1 class="text-3xl font-bold text-indigo-700 mb-2">Import Historical Data</h1>
+        <p class="text-sm text-gray-500 mb-6">Upload your converted JSON file to Firebase</p>
+
+        <div class="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+            <p class="text-sm text-yellow-800">⚠️ <strong>Warning:</strong> This will upload all records to Firebase. Only do this once!</p>
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-sm font-medium text-gray-700 mb-2">Select JSON File:</label>
+            <input type="file" id="fileInput" accept=".json" 
+                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100">
+        </div>
+
+        <p id="authStatus" class="mb-4 text-center text-xs text-gray-400">Initializing...</p>
+
+        <button onclick="startImport()" id="importBtn"
+            class="w-full bg-indigo-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-indigo-700 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
+            🚀 Start Import
+        </button>
+
+        <div id="progress" class="hidden mt-6">
+            <div class="mb-2 flex justify-between text-sm">
+                <span class="text-gray-600">Importing records...</span>
+                <span id="progressText" class="text-indigo-600 font-semibold">0 / 0</span>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div id="progressBar" class="bg-indigo-600 h-4 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <p class="text-xs text-gray-500 mt-2">This may take a few minutes for large datasets...</p>
+        </div>
+
+        <div id="complete" class="hidden mt-6 p-4 bg-green-100 border border-green-200 rounded-lg">
+            <h2 class="text-xl font-bold text-green-800 mb-2">✅ Import Complete!</h2>
+            <p class="text-sm text-green-700">
+                Successfully imported <span id="totalImported" class="font-bold"></span> records to Firebase.
+            </p>
+            <a href="viewer.html" class="mt-4 inline-block bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition">
+                View All Encounters →
+            </a>
+        </div>
+
+        <div id="error" class="hidden mt-6 p-4 bg-red-100 border border-red-200 rounded-lg">
+            <h2 class="text-lg font-bold text-red-800 mb-2">❌ Error</h2>
+            <p id="errorText" class="text-sm text-red-700"></p>
+        </div>
+
+        <div class="mt-8 pt-6 border-t border-gray-200">
+            <a href="index.html" class="text-indigo-600 hover:text-indigo-800 text-sm">← Back to Tracker</a>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyC7BaWYwHkRbKX5tHqmizowv-iPR5JF8Rk",
+            authDomain: "dnd-encounter-tracker-4c6da.firebaseapp.com",
+            projectId: "dnd-encounter-tracker-4c6da",
+            storageBucket: "dnd-encounter-tracker-4c6da.firebasestorage.app",
+            messagingSenderId: "35765947096",
+            appId: "1:35765947096:web:6da5b1d95dd7367de265ad"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        let userId = null;
+        let jsonData = null;
+
+        const authStatus = document.getElementById('authStatus');
+        const fileInput = document.getElementById('fileInput');
+        const importBtn = document.getElementById('importBtn');
+        const progress = document.getElementById('progress');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const complete = document.getElementById('complete');
+        const error = document.getElementById('error');
+        const errorText = document.getElementById('errorText');
+        const totalImported = document.getElementById('totalImported');
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                userId = user.uid;
+                authStatus.textContent = `Connected! Ready to import.`;
+                importBtn.disabled = false;
+            } else {
+                authStatus.textContent = "Connecting...";
+                importBtn.disabled = true;
+            }
+        });
+
+        signInAnonymously(auth).catch((err) => {
+            console.error("Auth error:", err);
+            authStatus.textContent = "Connection failed.";
+            showError("Failed to connect to Firebase.");
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    jsonData = JSON.parse(event.target.result);
+                    console.log(`Loaded ${jsonData.length} records from file`);
+                } catch (err) {
+                    showError(`Invalid JSON file: ${err.message}`);
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        window.startImport = async function() {
+            if (!jsonData || !Array.isArray(jsonData)) {
+                showError("Please select a valid JSON file first!");
+                return;
+            }
+
+            if (!userId) {
+                showError("Not authenticated. Please wait for connection.");
+                return;
+            }
+
+            importBtn.disabled = true;
+            progress.classList.remove('hidden');
+            complete.classList.add('hidden');
+            error.classList.add('hidden');
+
+            let imported = 0;
+            const total = jsonData.length;
+            const batchSize = 10; // Import 10 at a time to avoid rate limits
+
+            try {
+                for (let i = 0; i < jsonData.length; i += batchSize) {
+                    const batch = jsonData.slice(i, i + batchSize);
+                    
+                    await Promise.all(batch.map(async (record) => {
+                        try {
+                            // Convert recordedAt string to Firestore Timestamp
+                            const docData = {
+                                ...record,
+                                recordedAt: new Date(record.recordedAt)
+                            };
+                            
+                            await addDoc(collection(db, 'dnd_encounters'), docData);
+                            imported++;
+                            
+                            const percent = Math.round((imported / total) * 100);
+                            progressBar.style.width = `${percent}%`;
+                            progressText.textContent = `${imported} / ${total}`;
+                        } catch (err) {
+                            console.error(`Failed to import record:`, err);
+                        }
+                    }));
+
+                    // Small delay to avoid rate limits
+                    if (i + batchSize < jsonData.length) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
+
+                progress.classList.add('hidden');
+                complete.classList.remove('hidden');
+                totalImported.textContent = imported;
+                
+            } catch (err) {
+                showError(`Import failed: ${err.message}`);
+                importBtn.disabled = false;
+            }
+        };
+
+        function showError(message) {
+            error.classList.remove('hidden');
+            errorText.textContent = message;
+            progress.classList.add('hidden');
+            importBtn.disabled = false;
+        }
+    </script>
+</body>
+</html>
